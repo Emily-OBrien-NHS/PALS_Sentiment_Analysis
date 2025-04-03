@@ -171,11 +171,19 @@ def aspects_plot(df, name, area, output_path):
                    values='ID'))
     asp_sens_df['total'] = asp_sens_df.sum(axis=1)
     #Pick out top n aspects to plot
-    asp_sens_df = asp_sens_df.sort_values(by='total', ascending=False).head(20)
-    #Create plot
-    asp_sens_df[['Negative', 'Neutral', 'Positive']].plot(kind='barh', color=['#BB2C2C', '#FFCC66', '#479D4B'],
-                     title=f'{name} - {area} Aspect Sentiment Analysis', figsize=(15,25))
-    plt.savefig(f'{output_path}/{area} Aspect Sentiment Analysis.png', bbox_inches='tight')
+    asp_sens_df = asp_sens_df.sort_values(by='total', ascending=False).head(25).drop('total', axis=1)
+    #Create plot - if one sentiment is missing, ensure the colours are still corect
+    colour_dict = {'Negative':'#BB2C2C', 'Neutral':'#FFCC66', 'Positive':'#479D4B'}
+    colours = [colour_dict[col] for col in asp_sens_df.columns]
+    fig, ax = plt.subplots(figsize=(15,20))
+    asp_sens_df.plot(kind='barh', color=colours,
+                     title=f'{name} - {area} Aspect Sentiment Analysis', ax=ax)
+    plt.tick_params(axis='both',  which='major', labelsize=20)
+    plt.xlabel('Count of Appearances', fontsize=20)
+    plt.ylabel('Aspect', fontsize=20)
+    plt.legend(prop={'size':20})
+    plt.savefig(f'{output_path}/{area} Aspect Sentiment Analysis.png',
+                bbox_inches='tight', dpi=1200)
     plt.close()
 
 def check_and_make_dir(dir_path):
@@ -276,16 +284,14 @@ for data in datasets:
         #Create a word cloud and aspect plot for each catogory if responses allow.
         for cat in cats:
             if lst:
-                text_responses = df.loc[df[col].apply(lambda x: cat in x),
-                                        'Description'].copy().str.strip()
+                filtered_df = df.loc[df[col].apply(lambda x: cat in x)].copy()
             else:
-                text_responses = df.loc[df[col]== cat, 'Description'
-                                        ].copy().str.strip()
-            if len(text_responses) >= 10:
-                create_wordcloud(text_responses,
+                filtered_df = df.loc[df[col]== cat].copy()
+            if len(filtered_df) >= 10:
+                create_wordcloud(filtered_df['Description'].copy().str.strip(),
                                  word_cloud_stopwords.union(set(cat.split(' '))),
                                  cat.replace('/', 'or'), group_path)
-                aspects_plot(text_responses, name, cat, output_path)
+                aspects_plot(filtered_df, name, cat.replace('/', 'or'), group_path)
 
         
 
