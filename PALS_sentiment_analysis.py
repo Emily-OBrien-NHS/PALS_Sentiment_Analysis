@@ -1,19 +1,19 @@
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
-import textwrap
 from wordcloud import WordCloud, STOPWORDS
 import string
 import calendar
 from transformers import pipeline
-from nltk.tokenize import word_tokenize
-from nltk.stem import WordNetLemmatizer
-import nltk
+import spacy
 import time
+import ast
 import re
 import os
-from transformers import AutoTokenizer, AutoModelForSequenceClassification, pipeline
+from transformers import (AutoTokenizer, AutoModelForSequenceClassification,
+                          pipeline)
 os.chdir('C:/Users/obriene/Projects/PALS')
+start = time.time()
 #nltk.download('all')
 
 ################################################################################
@@ -22,18 +22,20 @@ os.chdir('C:/Users/obriene/Projects/PALS')
 
     ####Complaints
 complaints = pd.read_excel('Formal Complaints Mar 24-25.xlsx')
-#Sort out issued due to merged descriptions covering multilpe lines.  Forward
+#Sort out issues due to merged descriptions covering multilpe lines.  Forward
 #fill id and date to work out which rows correspond to which complaint
 #(so blanks aren't written over), then forward fill values within each id and
 #Put one row per complaint, and group up location, serviceline, subect etc
 # columns into a list
-complaints[['ID', 'First received']] = complaints[['ID', 'First received']].ffill()
+complaints[['ID', 'First received']] = complaints[['ID', 'First received']
+                                                  ].ffill()
 complaints = (complaints.set_index(['ID', 'First received'])
               .groupby(['ID', 'First received']).ffill().reset_index()
               .groupby(['ID', 'First received', 'Description'], as_index=False)
               [['Service Line', 'Location', 'Specialty admitted',
                 'Location (type)', 'Subjects', 'Sub-subject']]
-              .agg(lambda x:[i for i in x if i==i])).dropna(subset='Description')
+              .agg(lambda x:[i for i in x if i==i])
+              ).dropna(subset='Description')
 #Remove PREVIOUS PALS from text where possible
 complaints['Description'] = complaints['Description'].str.replace(
                             r'^.{,15}\w+\sPALS\s(.*)\n', '', regex=True)
@@ -42,20 +44,8 @@ complaints['Description'] = complaints['Description'].str.replace(
 corresponence = pd.read_excel('PALS correspondence Mar 24-25.xlsx'
                               ).dropna(subset='Description')
 
-    ####List of Diseases
-diseases = pd.read_csv('''C:/Users/obriene/.cache/kagglehub/datasets/harshdhakad20/list-of-all-the-diseases/versions/1/Diseases.csv''', delimiter=',')
-diseases = [disease.split(' (')[0].lower()
-            for disease in diseases.iloc[:,0].tolist()]
-keep_diseases = ['treatment', 'endoscopy', 'dental', 'nursing', 'ultrasound',
-                 'radiotherapy', 'rheumatology', 'hysterectomy', 'mri scan',
-                 'hip replacement', 'colonoscopy', 'appendectomy', 
-                 'mental health', 'chemotherapy', 'pain management',
-                 'pregnancy', 'bullying', 'defibrillator', 'back surgery',
-                 'breast implants', 'dialysis', 'x-rays']
-diseases = [i for i in diseases if ((len(i) >= 5) and (i not in keep_diseases))]
-
 ################################################################################
-                        ##Set up lists and functions##
+                                     ##Set up lists##
 ################################################################################
 word_cloud_stopwords = STOPWORDS.union(
                        {"will", "may", "dont", "whilst", "one", "now", "said",
@@ -64,76 +54,69 @@ word_cloud_stopwords = STOPWORDS.union(
                         "regarding", "wishes", "without", "feel", "feels",
                         "felt", "made", "ask", "asked", "asking", "though",
                         "got", "took", "house", "going", "still", "intends",
-                        "onto", "within", "attended",
-                        "mum", "mother", "mothers", "dad", "father", "fathers",
-                        "son", "daughter", "child", "sibling", "siblings",
-                        "wife", "husband", "family", "patient", "patients",
+                        "onto", "within", "attended", "mum", "mother",
+                        "mothers", "dad", "father", "fathers", "son",
+                        "daughter", "child", "sibling", "siblings", "wife",
+                        "husband", "family", "patient", "patients",
                         "complainant", "hospital"})
 
-remove_aspects = (['disease', 'patient', 'pt', 'wish', 'concern', 'wa', 'lack',
-                   'daughter', 'time', 'service',
-                  'mother', 'team', 'husband', 'wife', 'father', 'son', 'family',
-                  'year', 'month', 'day', 'week', 'feel', 'question', 'member',
-                  'issue', 'home', 'relief', 'decision', 'complaint', 'eye',
-                  'child', 'fact', 'list', 'explanation', 'state', 'leg',
-                  'relation', 'partner', 'trust', 'failure', 'need', 'problem',
-                  'granddaughter', 'comment', 'opinion', 'date', 'unit', 'area',
-                  'belief', 'relate', 'level', 'action', 'access', 'post', 'risk',
-                  'whilst', 'son-in-law', 'raise', 'recieve', 'ha', 'intake',
-                  'consideration', 'issue', 'aware', 'one', 's', 'complainant',
-                  'mention', 'request', 'doe', 'incorrect', 'line', 'towards',
-                  'cause', 'someone', 'report', 'anything', 'friend', 'hold',
-                  'understand', 'end', 'e', 'comlication', 'difficulty',
-                  'capacity', 'relative', 'detail', 'see', 'event', 'distress',
-                  'anyone', 'step', 'standard', 'instruction', 'name', 'mum',
-                  'matter', 'recieve', 'arrangement', 't', 'mr', 'copy', 'take',
-                  'move', 'regard', 'person', 'circumstance', 'claim', 'know',
-                  'use', 'pressure', 'number', 'disorder', 'self', 'point',
-                  'manner', 'responsibility', 'case', 'lot', 'baby', 'boy',
-                  'nothing', 'sister', 'part', 'd', 'hand', 'something',
-                  'advises', 'office', 'nt', 'stage', 'stress', 'speak',
-                  'advise', 'house', 'follow', 'account', 'let', 'check',
-                  'thumb', 'b', 'thing', 'brother', 'behalf', 'look', 'expense',
-                  'rate', 'future', 'act', 'interest', 'query', 'side', 'order',
-                  'grandmother', 'fu', 'return', 'following', 'gentleman',
-                  'freedom', 'paper', 'minute', 'hour', 'lead', 'public',
-                  'feeling', 'mark', 'meant', 'pre', 'm', 'relates', 'heard',
-                  'hearing', 'resolution', 'respond', 'news', 'newphew', 'inn',
-                  'perform', 'mp', 're', 'reaction', 'inform', 'paul',
-                  'refernce', 'implication', 'impact', 'section', 'value',
-                  'aunt', 'daughterinlaw', 'course', 'dad', 'summary', 'veteran',
-                  'view', 'development', 'vision', 'ask', 'die', 'space',
-                  'couple', 'clarity', 'c', 'till', 'grandson' ,'grandfather',
-                  ''] 
+remove_aspects = (['disease', 'patient', 'patients', 'pt', 'pts', 'wish',
+                   'concern', 'concerned', 'find', 'advise', 'carer',
+                   'complainant', 'way', 'mention', 'consideration', 'raise',
+                   'feel', 'question', 'answer', 'date', 'hour', 'day', 'week',
+                   'month', 'year', 'daily', 'recently', 'regular', 'basis',
+                   'monthly', 'constant', 'follow', 'complaint',
+                   'inconvenience', 'need', 'problem', 'he', 'future', 'cause',
+                   'result', 'comment', 'previous', 'mp', 'state', 'fact',
+                   'effect', 'link', 'pal', 'pals', 'point', 'view', 'thing',
+                   'state', 'explanation', 'officially', 'state', 'show',
+                   'instate', 'tell', 'mention', 'look', 'ask', 'behalf',
+                   'hand', 'regard', 'enquiry', 'stage', 'th', 'nothing', 'lot',
+                   'lack', 'one', 'two', 'several', 'anything', 'action',
+                   'status', 'i', 'I', 'son', 'daughter', 'child', 'mum',
+                   'mother', 'dad', 'father', 'wife', 'husband', 'husbands',
+                   'partner', 'family', 'sister', 'brother', 'sibling',
+                   'grandfather', 'grandmother', 'grandson', 'granddaughter',
+                   'soninlaw', 'person', 'member', 'public', 'gent',
+                   'gentleman', 'lady', 'kin', 'relative', 'paul', 'friend',
+                   'someone'] 
                   + [month.lower() for month in calendar.month_name]
                   + [day.lower() for day in calendar.day_name])
 
-punctuation_mapping_table = str.maketrans('', '', string.punctuation)
-sentiments = []
+#sentiment analysis pipeline
+sentiment_pipeline = pipeline(model="juliensimon/reviews-sentiment-analysis")
+#nlp pipeline (for getting aspects)
+nlp = spacy.load('en_core_web_trf')
+#aspect analysis pipeline
+model_name = "yangheng/deberta-v3-base-absa-v1.1"#"yangheng/deberta-v3-large-absa-v1.1"
+tokenizer = AutoTokenizer.from_pretrained(model_name, use_fast=False)
+model = AutoModelForSequenceClassification.from_pretrained(model_name)
+classifier = pipeline("text-classification", model=model, tokenizer=tokenizer)
+
+################################################################################
+                                 ##Set up functions##
+################################################################################
+
+def replace_digits_except_111(text):
+    # Use re.sub to replace digits with an empty string, but preserve '111'
+    def replace(match):
+        # If the matched number is '111', don't replace it
+        if match.group(0) == '111':
+            return match.group(0)
+        return ""  # Replace other numbers with an empty string
+    return re.sub(r'\d+', replace, text)
+
 
 def preprocess_text(text):
-    #make lower case
-    text = text.lower()
-    #Replace and illness/disease mentioned to a standard 'disease' so these
-    #don't get picked as aspects.
-    for disease in diseases:
-        if disease in text:
-            text = text.replace(disease, 'disease')
-    #tokenise
-    tokens = word_tokenize(text)
-    #lemmatise tokens (except ones where s gets removed)
-    lemmatizer = WordNetLemmatizer()
-    non_lematize = ['was', 'has', 'does']
-    lemmatized_tokens = [lemmatizer.lemmatize(token)
-                         if token not in non_lematize else token
-                         for token in tokens]
     #remove punctuation
-    regex = re.compile('[%s]' % re.escape(string.punctuation))
-    remove_punctuation = [regex.sub('', word) for word in lemmatized_tokens
-                          if ((word not in string.punctuation)
-                          and (word not in STOPWORDS))]
+    text = re.sub(f"[{re.escape(string.punctuation)}]", "", text.lower())
+    #remove numbers (except)
+    text = replace_digits_except_111(text)
+    #lemmatise
+    doc = nlp(text)
+    tokens = [token.lemma_ for token in doc]
     #join tokens back into a string
-    processed_text = ' '.join(remove_punctuation)
+    processed_text = ' '.join(tokens)
     return processed_text
 
 #Sentiment analysis using text blob
@@ -145,9 +128,11 @@ def categorise_sentiment(lst):
 
 def create_wordcloud(text_responses, stopwords, name, path):
     full_text = ' \n '.join(text_responses)
-    #split into tokens, transform and join everything back into one string for the word cloud
+    #split into tokens, transform and join everything back into one string
+    #for the word cloud
     tokens = full_text.split()
-    tokens = [token.translate(punctuation_mapping_table).lower() for token in tokens]
+    tokens = [token.translate(str.maketrans('', '', string.punctuation)).lower()
+              for token in tokens]
     joined_string = ' '.join(tokens)
     #create and save wordcloud
     wordcloud = WordCloud(width=1800, height=1800, background_color='white',
@@ -164,24 +149,26 @@ def create_wordcloud(text_responses, stopwords, name, path):
 def aspects_plot(df, name, area, output_path):
     #Explode lists of aspects and their sentiments, get the counts of how many
     #times these appear
-    asp_sens_df = (df.explode(['Aspects', 'Aspect sentiment'])
-                   .groupby(['Aspects', 'Aspect sentiment'], as_index=False)
+    asp_sens_df = (df.explode(['Aspects', 'Aspect Sentiments'])
+                   .groupby(['Aspects', 'Aspect Sentiments'], as_index=False)
                    ['ID'].count()
-                   .pivot(columns='Aspect sentiment', index='Aspects',
+                   .pivot(columns='Aspect Sentiments', index='Aspects',
                    values='ID'))
     asp_sens_df['total'] = asp_sens_df.sum(axis=1)
     #Pick out top n aspects to plot
-    asp_sens_df = asp_sens_df.sort_values(by='total', ascending=False).head(25).drop('total', axis=1)
-    #Create plot - if one sentiment is missing, ensure the colours are still corect
-    colour_dict = {'Negative':'#BB2C2C', 'Neutral':'#FFCC66', 'Positive':'#479D4B'}
+    asp_sens_df = asp_sens_df.sort_values(by='total', ascending=False
+                                          ).head(25).drop('total', axis=1)
+    #Create plot - if one sentiment is missing, ensure the colours still match
+    colour_dict = {'Negative':'#BB2C2C', 'Neutral':'#FFCC66',
+                   'Positive':'#479D4B'}
     colours = [colour_dict[col] for col in asp_sens_df.columns]
     fig, ax = plt.subplots(figsize=(15,20))
-    asp_sens_df.plot(kind='barh', color=colours,
-                     title=f'{name} - {area} Aspect Sentiment Analysis', ax=ax)
-    plt.tick_params(axis='both',  which='major', labelsize=20)
-    plt.xlabel('Count of Appearances', fontsize=20)
-    plt.ylabel('Aspect', fontsize=20)
-    plt.legend(prop={'size':20})
+    asp_sens_df.plot(kind='barh', color=colours, ax=ax)
+    plt.tick_params(axis='both',  which='major', labelsize=24)
+    plt.xlabel('Count of Appearances', fontsize=24)
+    plt.ylabel('Aspect', fontsize=24)
+    plt.title(f'{name} - {area} Aspect Sentiment Analysis', fontsize=24)
+    plt.legend(prop={'size':24})
     plt.savefig(f'{output_path}/{area} Aspect Sentiment Analysis.png',
                 bbox_inches='tight', dpi=1200)
     plt.close()
@@ -193,82 +180,110 @@ def check_and_make_dir(dir_path):
 ################################################################################
                             ##For loop for analysis##
 ################################################################################
-datasets = [(complaints, 'Formal Complaints', ['Service Line', 'Specialty admitted', 'Subjects']),
-            (corresponence, 'PALS correspondance', ['Care Group', 'Subject (primary)', 'Type'])]
-
+datasets = [(complaints, 'Formal Complaints',
+             ['Service Line', 'Specialty admitted', 'Subjects']),
+            (corresponence, 'PALS correspondance',
+             ['Care Group', 'Subject (primary)', 'Type'])]
+dataframes = []
 for data in datasets:
+    t0 = time.time()
     df, name, groupings = data
     output_path = f'outputs/{name}'
     check_and_make_dir(output_path)
+    print(f'Running {name}')
     ################################Word Cloud##################################
     text_responses = df['Description'].str.strip()
-    #create_wordcloud(text_responses, word_cloud_stopwords, name, output_path)
+    create_wordcloud(text_responses, word_cloud_stopwords, name, output_path)
 
     ##############################Sentiment Analysis############################
-    #results dataframe and process text
+    #results dataframe and process text, and results dictionaries.
     df['Processed Text'] = text_responses.apply(preprocess_text)
+    texts = df['Processed Text'].tolist()
  
     #Overall sentiment analysis
-    sentiment_pipeline = pipeline(model="juliensimon/reviews-sentiment-analysis")
-    hugging_dict = sentiment_pipeline(df['Processed Text'].tolist())
+    hugging_dict = sentiment_pipeline(texts)
     hugging_score = [i['score'] for i in hugging_dict]
     hugging_cat = ['Positive' if i['label'] == 'LABEL_1'
                    else 'Negative' for i in hugging_dict]
     df['Overall Sentiment'] = hugging_cat
 
-    #aspect analysis
-    model_name = "yangheng/deberta-v3-large-absa-v1.1"
-    tokenizer = AutoTokenizer.from_pretrained(model_name, use_fast=False)
-    model = AutoModelForSequenceClassification.from_pretrained(model_name)
-    classifier = pipeline("text-classification", model=model, tokenizer=tokenizer)
+    ##########################Aspect Sentiment Analysis#########################
+    #empty dicts for results
+    aspects_dict = {k:[] for k in df.index}
+    sentiments_dict = {k:[] for k in df.index}
+    scores_dict = {k:[] for k in df.index}
+ 
+    #Get aspects
+    start_nouns = []
+    aspects = []
+    for text in texts:
+        asps = []
+        #If there is 'lack of x' in the text, ensure this is captured as one string.
+        if 'lack of' in text:
+            for lack_str in text.split('lack of')[1:]:
+                asps.append('lack of ' + lack_str.strip().split(' ')[0])
 
-    all_aspects = []
-    all_found_aspects = []
-    for text in df['Processed Text'].tolist():
-        #Extract nouns/aspects from the text
-        tagged = nltk.pos_tag(text.split(' '))
-        found_aspects = list(set([i[0] for i in tagged
-                            if ((i[1] =='NN') or (i[1] == 'NNS'))]))
-        all_aspects += found_aspects
-        all_found_aspects.append(found_aspects)
-    #record the initial list of aspects from just pickings nouns from tagging
-    df['Initial Aspects'] = all_found_aspects
+        #Get the nouns/noun chunks to pull aspects from the text.
+        clean_doc = nlp(text)
+        txt_nouns = [chunk.text for chunk in clean_doc.noun_chunks]
+        start_nouns += [txt_nouns]
+
+        #remove stopwords and remove_aspects, re-chunk long nouns
+        for noun_chunk in txt_nouns:
+            chunk_len = len(noun_chunk.split(' '))
+            noun_chunk = ' '.join([word for word in noun_chunk.split()
+                                if (word not in STOPWORDS)
+                                and (word not in remove_aspects)])
+            if noun_chunk:
+                #if a long chunk, try to re-chunk
+                if chunk_len > 4:
+                    asps += [chunk.text for chunk
+                             in nlp(noun_chunk).noun_chunks]
+                else:
+                    asps.append(noun_chunk)
+        aspects.append(list(set(asps)))
+    #add to dataframe
+    df['Inital Aspects'] = start_nouns
+    df['Filtered Aspects'] = aspects
+
     #work out which aspects only appear once in the entire data, so we can
     #reduce the run time by not asking the sentiment of these.
-    aspect_counts = pd.DataFrame(all_aspects).value_counts()
-    uncommon_aspects = [asp[0] for asp
-                        in aspect_counts.loc[aspect_counts == 1].index.values]
+    aspect_counts = pd.DataFrame([x for xs in aspects
+                                  for x in xs]).value_counts()
+    common_aspects = [asp[0] for asp
+                      in aspect_counts.loc[aspect_counts > 1].index.values]
+    #loop through each common aspect, find the corresponding texts and calculate
+    #their sentiments.
+    for aspect in common_aspects:
+        #Get the texts that contain those aspects, calculate their sentiments
+        asp_texts = df.loc[df['Filtered Aspects'].apply(lambda x: aspect in x),
+                           'Processed Text']
+        sentiments = classifier(asp_texts.to_list(), text_pair=aspect)
+        #record the results in the dictionaries
+        for i, text_col in enumerate(list(asp_texts.items())):
+            txt_idx = text_col[0]
+            aspects_dict[txt_idx].append(aspect)
+            sentiments_dict[txt_idx].append(sentiments[i]['label'])
+            scores_dict[txt_idx].append(sentiments[i]['score'])
 
-    all_aspects = []
-    asp_sentiments = []
-    asp_scores = []
-    for text, aspects in df[['Processed Text', 'Initial Aspects']].values:
-        #Go through each aspect and see whay the sentiment of it is.
-        #remove aspects that are uncommon or we don't want to look at
-        aspects = [asp for asp in aspects
-                   if ((asp not in uncommon_aspects)
-                   and (asp not in remove_aspects))]
-        #THIS IS VERY SLOW, HOW CAN WE IMPROVE?
-        aspect_sents = []
-        aspect_scores = []
-        for aspect in set(aspects):
-            sentiment = classifier(text,  text_pair=aspect)[0]
-            aspect_sents.append(sentiment['label'])
-            aspect_scores.append(sentiment['score'])
-        all_aspects.append(aspects)
-        asp_sentiments.append(aspect_sents)
-        asp_scores.append(aspect_scores)
-    df['Aspects'] = all_aspects
-    df['Aspect sentiment'] = asp_sentiments
-    df['Aspect score'] = asp_scores
+    #Join results onto dataframe
+    df = (df.join(pd.DataFrame([str(i) for i in aspects_dict.values()],
+            index=aspects_dict.keys(), columns=['Aspects']))
+            .join(pd.DataFrame([str(i) for i in sentiments_dict.values()],
+            index=sentiments_dict.keys(), columns=['Aspect Sentiments']))
+            .join(pd.DataFrame([str(i) for i in scores_dict.values()],
+            index=scores_dict.keys(), columns=['Scores'])))
+    df['Aspects'] = df['Aspects'].apply(ast.literal_eval)
+    df['Aspect Sentiments'] = df['Aspect Sentiments'].apply(ast.literal_eval)
+    df['Scores'] = df['Scores'].apply(ast.literal_eval)
 
     #Plot aspect bar chart
     aspects_plot(df, name, 'All', output_path)
 
     #Append results to list of dataframes
-    sentiments.append(df)
+    dataframes.append(df)
 
-    ############################Word clouds by area#############################
+    #######################Word clouds and plots by area########################
     for col in groupings:
         #Create directory for the column's outputs
         group_path = f'outputs/{name}/{col}'
@@ -289,25 +304,19 @@ for data in datasets:
                 filtered_df = df.loc[df[col]== cat].copy()
             if len(filtered_df) >= 10:
                 create_wordcloud(filtered_df['Description'].copy().str.strip(),
-                                 word_cloud_stopwords.union(set(cat.split(' '))),
-                                 cat.replace('/', 'or'), group_path)
-                aspects_plot(filtered_df, name, cat.replace('/', 'or'), group_path)
-
-        
-
-
-
-
+                                 word_cloud_stopwords.union(
+                                     set(cat.split(' '))),
+                                         cat.replace('/', 'or'), group_path)
+                aspects_plot(filtered_df, name, cat.replace('/', 'or'),
+                             group_path)
+    t1 = time.time()
+    print(f'{name} complete in {(t1-t0)/60:.2f} mins')
 
 
 #Write to excel
-start_row = 0
 writer = pd.ExcelWriter('Outputs/Sentiment.xlsx', engine='xlsxwriter')   
-workbook=writer.book
-worksheet=workbook.add_worksheet('Full Data')
-writer.sheets['Full Data'] = worksheet
-for df in sentiments:
-    df.to_excel(writer, sheet_name='Full Data', startrow=start_row, startcol=0,
-                index=False)
-    start_row += (len(df) + 2)
+dataframes[0].to_excel(writer, sheet_name='Complaints', index=False)
+dataframes[1].to_excel(writer, sheet_name='Corresondance', index=False)
 writer.close()
+end = time.time()
+print(f'Complete in {(end-start)/60:.2f} mins')
