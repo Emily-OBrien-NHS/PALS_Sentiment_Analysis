@@ -79,7 +79,7 @@ remove_aspects = (['disease', 'patient', 'patients', 'pt', 'pts', 'wish',
                    'grandfather', 'grandmother', 'grandson', 'granddaughter',
                    'soninlaw', 'person', 'member', 'public', 'gent',
                    'gentleman', 'lady', 'kin', 'relative', 'paul', 'friend',
-                   'someone'] 
+                   'someone', 'nhs', 'website'] 
                   + [month.lower() for month in calendar.month_name]
                   + [day.lower() for day in calendar.day_name])
 
