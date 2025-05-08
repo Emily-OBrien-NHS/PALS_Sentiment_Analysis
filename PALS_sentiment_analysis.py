@@ -12,7 +12,7 @@ import re
 import os
 from transformers import (AutoTokenizer, AutoModelForSequenceClassification,
                           pipeline)
-os.chdir('C:/Users/obriene/Projects/PALS')
+os.chdir('C:/Users/obriene/Projects/Text Data Analysis/PALS')
 start = time.time()
 #nltk.download('all')
 
